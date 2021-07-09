@@ -19,6 +19,7 @@ let listenKey;
 let type = 'sell'; //looking to buy or sell(intially looking to sell)
 let trainingWheels = 10; //cap program at ten buys to prevent the worst casenareo of an infinte loop quickly depleting my funds
 let first = 0;
+let P24ID = -1;  //interval id for 24 hour P variable interval function
 /*
 UPDATE USDT AND BTC WHEN RESTART PROGRAM
 */
@@ -132,6 +133,7 @@ function updateBalance (arr) {
 
 //sell 
 const sell = async () => {
+    clearInterval(P24ID);
     console.log('selling');
     type = 'buy';
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
@@ -148,6 +150,7 @@ const sell = async () => {
         //save each transaction in database
         // const newExchange = new Exchange({transfer: 'sell', fills: res.data.fills});
         // await newExchange.save();
+        P24ID = setInterval(() => P<=0?P=P:P=0,dayms); // if P has been positive for a whole day buy
     } catch (e){
         console.log("ERROR at sell", e);
         errorSMS('sell');
@@ -160,6 +163,7 @@ const buy = async () => {
         return;
     }
     trainingWheels--;
+    clearInterval(P24ID);
     console.log('buying');
     type = 'sell';
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
@@ -178,7 +182,7 @@ const buy = async () => {
         //save each transaction in database
         // const newExchange = new Exchange({transfer: 'buy', fills: res.data.fills});
         // await newExchange.save();
-        setInterval(() => P>=0?P=P:P=0,dayms);// if P has been negative for a whole day sell
+        P24ID = setInterval(() => P>=0?P=P:P=0,dayms);// if P has been negative for a whole day sell
     } catch (e){
         console.log("ERROR at buy", e);
         errorSMS('buy');
