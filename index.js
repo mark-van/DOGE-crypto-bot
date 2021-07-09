@@ -1,21 +1,24 @@
 require('dotenv').config();
-const mongoose = require('mongoose');
+//twilio
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const clientTwilio = require('twilio')(accountSid, authToken);
+
+//const mongoose = require('mongoose');
 const axios = require('axios');
 const CryptoJS = require("crypto-js");
+const SECRET_KEY = process.env.SECRET_KEY;
+const APIKEY = process.env.APIKEY;
 let P = -3.5; //24 HOUR % CHANGE at time of last purchase
 let timestamp;
 let post;
 let partial;
 let hashed;
 let data;
+let listenKey;
 let type = 'sell'; //looking to buy or sell(intially looking to sell)
 let trainingWheels = 10; //cap program at ten buys to prevent the worst casenareo of an infinte loop quickly depleting my funds
-
-//twilio
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const client = require('twilio')(accountSid, authToken);
-
+let first = 0;
 /*
 UPDATE USDT AND BTC WHEN RESTART PROGRAM
 */
@@ -24,7 +27,7 @@ let USDT = 0; //initially start with zero USDT in account
 let BTC = 0.00012032; //5 CAD at time of purchase
 const halfhourms = 30*60*1000;
 const dayms = 24*60*60*1000;
-const userDataStream = 'https://api.binance.us/api/v3/userDataStream';
+const userDataStream = 'https://api.binance.com/api/v3/userDataStream';
 //const Exchange = require('./models/exchange');
 const WebSocketClient = require('websocket').client;
 // mongoose.connect('mongodb://localhost:27017/cryptoBot', {useNewUrlParser: true, useUnifiedTopology: true})
@@ -57,11 +60,16 @@ client.on('connect', function(connection) {
         console.log('echo-protocol Connection Closed');
     });
     connection.on('message', function(message) {
+        let parsedP = JSON.parse(message.utf8Data).P;
+        //console.log(`24 HOUR % CHANGE: ${parsedP}`);
         if (message.type === 'utf8') {
-            if((type == 'sell') && (JSON.parse(message.utf8Data).P < P-0.5)) //if price is going down sell
+            if((type == 'sell') && (parsedP < P-0.5)){ //if price is going down sell
                 sell();
-            else if ((type == 'buy') && (JSON.parse(message.utf8Data).P > P+0.5)) //if price is going up buy
+                P = parsedP;
+            }else if ((type == 'buy') && (parsedP > P+0.5)){ //if price is going up buy
                 buy();
+                P = parsedP;
+            }
         }
     });
 });
@@ -121,16 +129,18 @@ function updateBalance (arr) {
     console.log(`Current BTC: ${BTC}`);
 };
 
+
 //sell 
 const sell = async () => {
     console.log('selling');
     type = 'buy';
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
-        partial = `symbol=BTCUSDT&side=SELL&type=MARKET&quantity=${BTC}&recvWindow=50000&timestamp=${timestamp}`;
-        hashed = CryptoJS.HmacSHA256(partial, "V7317ZUI5Rmx67QSBzoBRnbW4l8zFzFXG5052RzIsoVkRExzSycLKb5JC08HEFj6").toString(CryptoJS.enc.Hex);
+        console.log(Math.floor(BTC*100000)/100000);
+        partial = `symbol=BTCUSDT&side=SELL&type=MARKET&quantity=${Math.floor(BTC*100000)/100000}&recvWindow=50000&timestamp=${timestamp}`;
+        hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         post = `https://api.binance.com/api/v3/order`;
         data = `${partial}&signature=${hashed}`;
         res = await axios.post(post,data,config);
@@ -152,13 +162,13 @@ const buy = async () => {
     trainingWheels--;
     console.log('buying');
     type = 'sell';
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
         console.log(timestamp);
         partial = `symbol=BTCUSDT&side=BUY&type=MARKET&quoteOrderQty=${USDT}&recvWindow=50000&timestamp=${timestamp}`;
-        hashed = CryptoJS.HmacSHA256(partial, "V7317ZUI5Rmx67QSBzoBRnbW4l8zFzFXG5052RzIsoVkRExzSycLKb5JC08HEFj6").toString(CryptoJS.enc.Hex);
+        hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         console.log(hashed);
         post = `https://api.binance.com/api/v3/order`;
         data = `${partial}&signature=${hashed}`;
@@ -168,6 +178,7 @@ const buy = async () => {
         //save each transaction in database
         // const newExchange = new Exchange({transfer: 'buy', fills: res.data.fills});
         // await newExchange.save();
+        setInterval(() => P>=0?P=P:P=0,dayms);// if P has been negative for a whole day sell
     } catch (e){
         console.log("ERROR at buy", e);
         errorSMS('buy');
@@ -175,13 +186,13 @@ const buy = async () => {
 }
 //ok, now lets set up buy and view current coins
 const syncronizeData = async () => {
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
         console.log(timestamp);
         partial = `timestamp=${timestamp}`;
-        hashed = CryptoJS.HmacSHA256(partial, "V7317ZUI5Rmx67QSBzoBRnbW4l8zFzFXG5052RzIsoVkRExzSycLKb5JC08HEFj6").toString(CryptoJS.enc.Hex);
+        hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         console.log(hashed);
         post = `https://api.binance.com/sapi/v1/capital/config/getall?${partial}&signature=${hashed}`;
         res = await axios.get(post,config);
@@ -194,7 +205,7 @@ const syncronizeData = async () => {
     }
 }
 const deleteListenKey = async () => {
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         post = userDataStream;
         console.log(post);
@@ -206,8 +217,8 @@ const deleteListenKey = async () => {
         errorSMS('deleteListenKey');
     }
 }
-const listenKey = async () => {
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+const getListenKey = async () => {
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         post = userDataStream;
         console.log(post);
@@ -221,7 +232,7 @@ const listenKey = async () => {
 }
 
 const pingUserData = async () => {
-    const config = {headers: {'X-MBX-APIKEY': '2rP5rFsSdgqMFIZxxo1vRgyKBURIFzMCE0kPW7prPUuNfaefE6bZCPU9huxHTiJz'}}
+    const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         post = userDataStream;
         console.log(post);
@@ -234,17 +245,19 @@ const pingUserData = async () => {
 
 }
 const connectToUserData = async () => {
-    if(listenKey)
+    if(first != 0)
         deleteListenKey();
-    listenKey();
+    else
+        first = 1;
+    getListenKey();
     clientUserData.connect(`wss://stream.binance.com:9443/ws/${listenKey}`);
 }
 const connectToMarket = async () => {
-    client.connect('wss://stream.binance.com:9443/ws/dogeusdt@ticker');
+    client.connect('wss://stream.binance.com:9443/ws/btcusdt@ticker');
 }
 
 const errorSMS = (errorLocation) => {
-    client.messages
+    clientTwilio.messages
     .create({
         body: `Error at ${errorLocation}`,
         from: '+17788002773',
@@ -255,11 +268,11 @@ const errorSMS = (errorLocation) => {
 
 
 connectToUserData();
-setInterval(dayms/2, connectToUserData); //have to reconnect to stream every 24 hours(lets to 12 hours to be safe)
-setInterval(halfhourms, pingUserData); // need to ping UD stream every hour(so lets to half hour to be safe)
+setInterval(connectToUserData, dayms/2); //have to reconnect to stream every 24 hours(lets to 12 hours to be safe)
+setInterval(pingUserData, halfhourms); // need to ping UD stream every hour(so lets to half hour to be safe)
 
 connectToMarket();
-setInterval(dayms/2, connectToMarket);
-setInterval(3*60*1000, client.ping()) //need to ping market every 3 minuts
+setInterval(connectToMarket, dayms/2);
+//setInterval(client.ping(), 3*60*1000) //need to ping market every 3 minuts //assume this si automatic
 
-setInterval(dayms, syncronizeData); //Once a day, synchronize the bots coin value and the value in the account(checks for discrepancies)
+setInterval(syncronizeData, dayms); //Once a day, synchronize the bots coin value and the value in the account(checks for discrepancies)
