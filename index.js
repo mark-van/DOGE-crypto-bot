@@ -73,7 +73,7 @@ client.on('connect', function(connection) {
 
 //update balance given array of assets in acoount. 
 //throw an error if there is a discrpencacy and this is not the initalization of asset values
-function updateBalance (arr) 
+function updateBalance (arr) {
     arr.forEach(coin => {
         console.log(coin);
         if(coin.coin == 'DOGE'){
