@@ -76,30 +76,17 @@ client.on('connect', function(connection) {
 function updateBalance (arr) 
     arr.forEach(coin => {
         console.log(coin);
-        if(coin.coin == 'DOGE')
+        if(coin.coin == 'DOGE'){
             if((typeof(DOGE)!='undefined') && (DOGE != coin.free))
 		    throw new Error('Price Discrepancy: DOGE');
 	    DOGE = coin.free;
-        if(coin.coin == 'USDT')
+	}
+        else if(coin.coin == 'USDT'){
 	    if((typeof(USDT)!='undefined') && (USDT != coin.free))
  		    throw new Error('Price Discrepancy: USDT');
             USDT = coin.free;
+	}
     });
-    throw new Error('Price Discrepancy');
-    console.log(`Current USDT: ${USDT}`);
-    console.log(`Current DOGE: ${DOGE}`);
-};
-
-//update balance for synchronization
-function updateBalance (arr) {
-    arr.forEach(coin => {
-        console.log(coin);
-        if(coin.coin == 'DOGE')
-            DOGE = coin.free;
-        if(coin.coin == 'USDT')
-            USDT = coin.free;
-    });
-    throw new Error('Price Discrepancy');
     console.log(`Current USDT: ${USDT}`);
     console.log(`Current DOGE: ${DOGE}`);
 };
@@ -138,6 +125,7 @@ const sell = async () => {
         errorSMS('sell');
     }
 }
+
 //buy the maximum amount of DOGE coin given current quantity of USDT 
 const buy = async () => {
     if(trainingWheels<=0){
@@ -226,6 +214,7 @@ const errorSMS = (errorLocation) => {
     .then(message => console.log('sent error SMS'));
 }
 
+///24 HOUR % CHANGE is negative for a whole day, set it to zero
 P24ID = setInterval(() => P<=0?P=P:P=0,dayms);
 
 //set intial values for type USDT and DOGE
