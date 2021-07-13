@@ -9,23 +9,24 @@ const axios = require('axios');
 const CryptoJS = require("crypto-js");
 const SECRET_KEY = process.env.SECRET_KEY;
 const APIKEY = process.env.APIKEY;
-let P = -3.5; //24 HOUR % CHANGE at time of last purchase
+let P = parseFloat(process.env.P); //24 HOUR % CHANGE at time of last purchase
 let timestamp;
 let post;
 let partial;
 let hashed;
 let data;
 let listenKey;
-let type = 'sell'; //looking to buy or sell(intially looking to sell)
-let trainingWheels = 10; //cap program at ten buys to prevent the worst casenareo of an infinte loop quickly depleting my funds
+let type; // = process.env.TYPE; //looking to buy or sell(intially looking to sell)
+let trainingWheels = parseFloat(process.env.MAX_BUYS); //cap program at ten buys to prevent the worst casenareo of an infinte loop quickly depleting my funds
+let orderInprogress = 0; //is a sell or buy order currently being processed
 let first = 0;
 let P24ID = -1;  //interval id for 24 hour P variable interval function
 /*
-UPDATE USDT AND BTC WHEN RESTART PROGRAM
+UPDATE USDT AND DOGE WHEN RESTART PROGRAM
 */
 
-let USDT = 0; //initially start with zero USDT in account
-let BTC = 0.00012032; //5 CAD at time of purchase
+let USDT; // = parseFloat(process.env.USDT); //initially start with zero USDT in account
+let DOGE; // = parseFloat(process.env.DOGE); //5 CAD at time of purchase
 const halfhourms = 30*60*1000;
 const dayms = 24*60*60*1000;
 const userDataStream = 'https://api.binance.com/api/v3/userDataStream';
@@ -64,13 +65,25 @@ client.on('connect', function(connection) {
         let parsedP = JSON.parse(message.utf8Data).P;
         //console.log(`24 HOUR % CHANGE: ${parsedP}`);
         if (message.type === 'utf8') {
-            if((type == 'sell') && (parsedP < P-0.5)){ //if price is going down sell
-                sell();
-                P = parsedP;
-            }else if ((type == 'buy') && (parsedP > P+0.5)){ //if price is going up buy
-                buy();
-                P = parsedP;
-            }
+	    if(orderInprogress==0){
+		if((type === 'sell') && (parsedP < P-0.5)){ //if price is going down sell
+		    orderInprogress=1;
+		    console.log(`Old P Before sell:${P}`);
+		    console.log(`ParsedP Before sell ${parsedP}`);
+		    sell();
+		    console.log(`Old P Sell:${P}`);
+		    P = parsedP;
+		    console.log(`New P Sell:${P}`);
+		}else if ((type === 'buy') && (parsedP > P+0.5)){ //if price is going up buy
+		    orderInprogress=1;
+		    console.log(`Old P Before Buy:${P}`);
+		    console.log(`ParsedP Before Buy ${parsedP}`);
+		    buy();
+		    console.log(`Old P Buy:${P}`);
+		    P = parsedP;
+		    console.log(`New P Buy:${P}`);		
+		}
+	    }
         }
     });
 });
@@ -109,25 +122,25 @@ clientUserData.on('connect', function(connection) {
 function updateBalanceSync (arr) {
     arr.forEach(coin => {
         console.log(coin);
-        if(coin.coin == 'BTC')
-            BTC = coin.free;
+        if(coin.coin == 'DOGE')
+            DOGE = coin.free;
         if(coin.coin == 'USDT')
             USDT = coin.free;
     });
     console.log(`Current USDT: ${USDT}`);
-    console.log(`Current BTC: ${BTC}`);
+    console.log(`Current DOGE: ${DOGE}`);
 };
 //update balance after transactions
 function updateBalance (arr) {
     arr.forEach(coin => {
         console.log(coin);
-        if(coin.a == 'BTC')
-            BTC = coin.f;
+        if(coin.a == 'DOGE')
+            DOGE = coin.f;
         if(coin.a == 'USDT')
             USDT = coin.f;
     });
     console.log(`Current USDT: ${USDT}`);
-    console.log(`Current BTC: ${BTC}`);
+    console.log(`Current DOGE: ${DOGE}`);
 };
 
 
@@ -136,12 +149,14 @@ const sell = async () => {
     clearInterval(P24ID);
     console.log('selling');
     type = 'buy';
+    console.log(`DOGE: ${DOGE}`);
+    console.log(`USDT: ${USDT}`);
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
-        console.log(Math.floor(BTC*100000)/100000);
-        partial = `symbol=BTCUSDT&side=SELL&type=MARKET&quantity=${Math.floor(BTC*100000)/100000}&recvWindow=50000&timestamp=${timestamp}`;
+        console.log(Math.floor(DOGE));
+        partial = `symbol=DOGEUSDT&side=SELL&type=MARKET&quantity=${Math.floor(DOGE)}&recvWindow=50000&timestamp=${timestamp}`;
         hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         post = `https://api.binance.com/api/v3/order`;
         data = `${partial}&signature=${hashed}`;
@@ -151,6 +166,16 @@ const sell = async () => {
         // const newExchange = new Exchange({transfer: 'sell', fills: res.data.fills});
         // await newExchange.save();
         P24ID = setInterval(() => P<=0?P=P:P=0,dayms); // if P has been positive for a whole day buy
+	let fillsarr = res.data.fills;
+	fillsarr.forEach(fill => {
+	    USDT+=parseFloat(fill.price)*parseFloat(fill.qty)-parseFloat(fill.commission);
+	});
+	fillsarr.forEach(fill => {
+	    DOGE-=parseFloat(fill.qty);
+	});
+	console.log(`DOGE: ${DOGE}`);
+	console.log(`USDT: ${USDT}`);
+	orderInprogress=0;
     } catch (e){
         console.log("ERROR at sell", e);
         errorSMS('sell');
@@ -166,12 +191,14 @@ const buy = async () => {
     clearInterval(P24ID);
     console.log('buying');
     type = 'sell';
+    console.log(`DOGE: ${DOGE}`);
+    console.log(`USDT: ${USDT}`);
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
         console.log(timestamp);
-        partial = `symbol=BTCUSDT&side=BUY&type=MARKET&quoteOrderQty=${USDT}&recvWindow=50000&timestamp=${timestamp}`;
+        partial = `symbol=DOGEUSDT&side=BUY&type=MARKET&quoteOrderQty=${USDT}&recvWindow=50000&timestamp=${timestamp}`;
         hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         console.log(hashed);
         post = `https://api.binance.com/api/v3/order`;
@@ -183,6 +210,16 @@ const buy = async () => {
         // const newExchange = new Exchange({transfer: 'buy', fills: res.data.fills});
         // await newExchange.save();
         P24ID = setInterval(() => P>=0?P=P:P=0,dayms);// if P has been negative for a whole day sell
+	orderInprogress=0;
+	let fillsarr = res.data.fills;
+	fillsarr.forEach(fill => {
+	    USDT-=parseFloat(fill.price)*parseFloat(fill.qty);
+	});
+	fillsarr.forEach(fill => {
+	    DOGE+=parseFloat(fill.qty)-parseFloat(fill.commission);
+	});
+	console.log(`DOGE: ${DOGE}`);
+	console.log(`USDT: ${USDT}`);
     } catch (e){
         console.log("ERROR at buy", e);
         errorSMS('buy');
@@ -195,7 +232,7 @@ const syncronizeData = async () => {
         let res = await axios.get('https://api.binance.com/api/v1/time')
         timestamp = res.data.serverTime;
         console.log(timestamp);
-        partial = `timestamp=${timestamp}`;
+        partial = `recvWindow=50000&timestamp=${timestamp}`;
         hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         console.log(hashed);
         post = `https://api.binance.com/sapi/v1/capital/config/getall?${partial}&signature=${hashed}`;
@@ -203,6 +240,13 @@ const syncronizeData = async () => {
         let arrCoins = res.data;
         arrCoins = arrCoins.filter(coin => coin.free != 0); //ok this works can used it to reset data at days end
         updateBalanceSync(arrCoins);
+	if(USDT>DOGE){
+	    type='buy';
+	}
+	else{
+	    type='sell';
+	}
+	console.log(type);
     } catch (e){
         console.log("ERROR at syncronizeData", e);
         errorSMS('syncronizeData');
@@ -211,7 +255,7 @@ const syncronizeData = async () => {
 const deleteListenKey = async () => {
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
-        post = userDataStream;
+        post = userDataStream +`?listenKey=${listenKey}`;
         console.log(post);
         res = await axios.delete(post,config);
         console.log(res.data);
@@ -238,7 +282,7 @@ const getListenKey = async () => {
 const pingUserData = async () => {
     const config = {headers: {'X-MBX-APIKEY': `${APIKEY}`}}
     try {
-        post = userDataStream;
+        post = userDataStream +`?listenKey=${listenKey}`;
         console.log(post);
         res = await axios.put(post,null,config);
         console.log(res.data);
@@ -257,7 +301,7 @@ const connectToUserData = async () => {
     clientUserData.connect(`wss://stream.binance.com:9443/ws/${listenKey}`);
 }
 const connectToMarket = async () => {
-    client.connect('wss://stream.binance.com:9443/ws/btcusdt@ticker');
+    client.connect('wss://stream.binance.com:9443/ws/dogeusdt@ticker');
 }
 
 const errorSMS = (errorLocation) => {
@@ -270,10 +314,13 @@ const errorSMS = (errorLocation) => {
     .then(message => console.log('sent error SMS'));
 }
 
+P24ID = setInterval(() => P<=0?P=P:P=0,dayms);
 
-connectToUserData();
-setInterval(connectToUserData, dayms/2); //have to reconnect to stream every 24 hours(lets to 12 hours to be safe)
-setInterval(pingUserData, halfhourms); // need to ping UD stream every hour(so lets to half hour to be safe)
+//connectToUserData();
+//setInterval(connectToUserData, dayms/2); //have to reconnect to stream every 24 hours(lets to 12 hours to be safe)
+//setInterval(pingUserData, halfhourms); // need to ping UD stream every hour(so lets to half hour to be safe)
+//set USDT and DOGE value
+syncronizeData();
 
 connectToMarket();
 setInterval(connectToMarket, dayms/2);
