@@ -46,7 +46,7 @@ client.on('connect', function(connection) {
         console.log('echo-protocol Connection Closed');
     });
     connection.on('message', function(message) {
-        let parsedP = JSON.parse(message.utf8Data).P;
+        let parsedP = parseFloat(JSON.parse(message.utf8Data).P);
         if (message.type === 'utf8') {
 	    if(orderInprogress==0){
 		if((type === 'sell') && (parsedP < P-0.5)){ //if price is going down sell
@@ -73,18 +73,27 @@ client.on('connect', function(connection) {
 
 //update balance given array of assets in acoount. 
 //throw an error if there is a discrpencacy and this is not the initalization of asset values
-function updateBalance (arr) {
+function updateBalance (arr) { 
     arr.forEach(coin => {
         console.log(coin);
+	let newValue = parseFloat(coin.free);
         if(coin.coin == 'DOGE'){
-            if((typeof(DOGE)!='undefined') && (DOGE != coin.free))
-		    throw new Error('Price Discrepancy: DOGE');
-	    DOGE = coin.free;
+            if((typeof(DOGE)!='undefined') && (DOGE != newValue)){
+		console.log(`DOGE variable: ${DOGE}`);
+		console.log(`DOGE actual: ${newValue}`);
+		//errorSMS('Price Discrepancy: DOGE');
+		//throw new Error('Price Discrepancy: DOGE');
+	    }
+	    DOGE = newValue;
 	}
         else if(coin.coin == 'USDT'){
-	    if((typeof(USDT)!='undefined') && (USDT != coin.free))
- 		    throw new Error('Price Discrepancy: USDT');
-            USDT = coin.free;
+	    if((typeof(USDT)!='undefined') && (USDT != newValue)){
+		console.log(`USDT variable: ${USDT}`);
+		console.log(`USDT actual: ${newValue}`);
+		//errorSMS('Price Discrepancy: USDT');
+ 		//throw new Error('Price Discrepancy: USDT');
+	    }
+            USDT = newValue;
 	}
     });
     console.log(`Current USDT: ${USDT}`);
@@ -144,7 +153,7 @@ const buy = async () => {
         let res = await axios.get(baseEndpoint + '/api/v1/time')
         timestamp = res.data.serverTime;
         console.log(timestamp);
-        partial = `symbol=DOGEUSDT&side=BUY&type=MARKET&quoteOrderQty=${USDT}&recvWindow=50000&timestamp=${timestamp}`;
+        partial = `symbol=DOGEUSDT&side=BUY&type=MARKET&quoteOrderQty=${Math.floor(USDT*10000)/10000}&recvWindow=50000&timestamp=${timestamp}`;
         hashed = CryptoJS.HmacSHA256(partial, `${SECRET_KEY}`).toString(CryptoJS.enc.Hex);
         console.log(hashed);
         post = baseEndpoint + `/api/v3/order`;
